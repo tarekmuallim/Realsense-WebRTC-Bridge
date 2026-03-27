@@ -1,0 +1,578 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>RealSense IPC WebRTC Stream</title>
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --panel: #fffaf2;
+        --ink: #1d1a16;
+        --accent: #0f766e;
+        --accent-strong: #115e59;
+        --muted: #6b6258;
+        --border: #d7c9b1;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top right, rgba(15, 118, 110, 0.18), transparent 30%),
+          linear-gradient(180deg, #f7f2e8 0%, var(--bg) 100%);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+
+      h1, h2 { margin: 0 0 12px; }
+      p { line-height: 1.5; }
+      .hero {
+        padding: 24px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: rgba(255, 250, 242, 0.88);
+        backdrop-filter: blur(6px);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 18px;
+        margin-top: 20px;
+      }
+
+      .panel {
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--panel);
+        box-shadow: 0 12px 30px rgba(29, 26, 22, 0.06);
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      button, a.button {
+        padding: 10px 14px;
+        border: none;
+        border-radius: 999px;
+        background: var(--accent);
+        color: white;
+        text-decoration: none;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      button.secondary, a.secondary {
+        background: #ded4c3;
+        color: var(--ink);
+      }
+
+      video, img {
+        width: 100%;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: #0f172a;
+      }
+
+      code { color: var(--accent-strong); }
+      .status { color: var(--muted); min-height: 24px; }
+      .mono { font-family: "IBM Plex Mono", monospace; }
+      .log {
+        margin-top: 12px;
+        padding: 12px;
+        max-height: 220px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: #f8f2e8;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 10px;
+        margin: 12px 0;
+      }
+
+      .stat-card {
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: #f8f2e8;
+      }
+
+      .stat-label {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .stat-value {
+        margin-top: 4px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 18px;
+        color: var(--accent-strong);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>RealSense → Shared Memory → WebRTC</h1>
+        <p>FastAPI provides signaling over WebSocket. An <code>aiortc</code> sender publishes the shared-memory RGB frames as a browser video track.</p>
+        <div class="row">
+          <button id="connect-btn">Connect WebRTC</button>
+          <button id="connect-testsrc-btn" class="secondary">Connect TestSrc</button>
+          <button id="disconnect-btn" class="secondary">Disconnect</button>
+          <button id="snapshot-btn" class="secondary">Refresh Snapshot</button>
+          <a class="button secondary" href="/docs" target="_blank">OpenAPI docs</a>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <h2>Live Video</h2>
+          <p id="stream-status" class="status">WebRTC idle.</p>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">Video Codec</div>
+              <div id="video-codec" class="stat-value">unknown</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Bitrate</div>
+              <div id="video-bitrate" class="stat-value">0 kbps</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Frame Rate</div>
+              <div id="video-fps" class="stat-value">0 fps</div>
+            </div>
+          </div>
+          <video id="remote-video" autoplay playsinline muted></video>
+          <div id="event-log" class="log">waiting for events...</div>
+        </div>
+
+        <div class="panel">
+          <h2>Control</h2>
+          <div class="row">
+            <button data-camera="start">Camera Start</button>
+            <button data-camera="stop" class="secondary">Camera Stop</button>
+          </div>
+          <p id="control-status" class="status">Control idle.</p>
+          <p class="mono">Signal path: <span id="signal-path"></span></p>
+          <p class="mono">ICE / SDP events show in the browser console for debugging.</p>
+        </div>
+
+        <div class="panel">
+          <h2>Snapshot</h2>
+          <p class="status">Diagnostic still image from <code>/v1/frame.jpg</code>.</p>
+          <img id="snapshot" src="/v1/frame.jpg" alt="Latest frame snapshot" />
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const signalPath = "/ws/webrtc";
+      const testSignalPath = "/ws/webrtc-testsrc";
+      const state = {
+        socket: null,
+        peer: null,
+        lastSignalError: "",
+        remoteDescriptionSet: false,
+        pendingRemoteIce: [],
+        statsTimer: null,
+        activeSignalPath: signalPath,
+        lastInboundBytes: null,
+        lastInboundTimestamp: null,
+        lastReportedCodec: "",
+      };
+
+      document.getElementById("signal-path").textContent = signalPath;
+      document.getElementById("connect-btn").addEventListener("click", () => connectWebRtc());
+      document.getElementById("connect-testsrc-btn").addEventListener("click", () => connectWebRtc(testSignalPath));
+      document.getElementById("disconnect-btn").addEventListener("click", disconnectWebRtc);
+      document.getElementById("snapshot-btn").addEventListener("click", refreshSnapshot);
+
+      const remoteVideo = document.getElementById("remote-video");
+      remoteVideo.addEventListener("loadedmetadata", () => {
+        appendLog("video loadedmetadata " + remoteVideo.videoWidth + "x" + remoteVideo.videoHeight);
+      });
+      remoteVideo.addEventListener("playing", () => {
+        appendLog("video playing " + remoteVideo.videoWidth + "x" + remoteVideo.videoHeight);
+        streamStatus("streaming " + remoteVideo.videoWidth + "x" + remoteVideo.videoHeight);
+      });
+      remoteVideo.addEventListener("pause", () => {
+        appendLog("video paused");
+      });
+      remoteVideo.addEventListener("error", () => {
+        appendLog("video error");
+      });
+
+      for (const button of document.querySelectorAll("[data-camera]")) {
+        button.addEventListener("click", () => sendCameraCommand(button.dataset.camera));
+      }
+
+      function streamStatus(text) {
+        document.getElementById("stream-status").textContent = text;
+      }
+
+      function appendLog(text) {
+        const log = document.getElementById("event-log");
+        const line = new Date().toLocaleTimeString() + " " + text;
+        if (log.textContent === "waiting for events...") {
+          log.textContent = line;
+        } else {
+          log.textContent += "\n" + line;
+        }
+        log.scrollTop = log.scrollHeight;
+      }
+
+      function updateVideoCodec(text) {
+        document.getElementById("video-codec").textContent = text || "unknown";
+      }
+
+      function updateVideoBitrate(bitsPerSecond) {
+        const target = document.getElementById("video-bitrate");
+        if (!Number.isFinite(bitsPerSecond) || bitsPerSecond <= 0) {
+          target.textContent = "0 kbps";
+          return;
+        }
+        if (bitsPerSecond >= 1_000_000) {
+          target.textContent = (bitsPerSecond / 1_000_000).toFixed(2) + " Mbps";
+          return;
+        }
+        target.textContent = Math.round(bitsPerSecond / 1000) + " kbps";
+      }
+
+      function updateVideoFps(framesPerSecond) {
+        const target = document.getElementById("video-fps");
+        if (!Number.isFinite(framesPerSecond) || framesPerSecond <= 0) {
+          target.textContent = "0 fps";
+          return;
+        }
+        target.textContent = framesPerSecond.toFixed(1) + " fps";
+      }
+
+      function updatePeerStatus(peer, prefix) {
+        if (!peer) {
+          return;
+        }
+        streamStatus(
+          prefix +
+          " peer=" + peer.connectionState +
+          " ice=" + peer.iceConnectionState +
+          " signal=" + peer.signalingState
+        );
+      }
+
+      async function pollPeerStats() {
+        if (!state.peer) {
+          return;
+        }
+        try {
+          const stats = await state.peer.getStats();
+          let activeCodecMimeType = "";
+          stats.forEach((report) => {
+            const mediaKind = report.kind || report.mediaType;
+            if (report.type === "inbound-rtp" && mediaKind === "video") {
+              if (typeof report.framesPerSecond === "number") {
+                updateVideoFps(report.framesPerSecond);
+              }
+              const bytesReceived = report.bytesReceived ?? 0;
+              const timestamp = report.timestamp ?? 0;
+              if (state.lastInboundBytes !== null && state.lastInboundTimestamp !== null && timestamp > state.lastInboundTimestamp) {
+                const bitrate = ((bytesReceived - state.lastInboundBytes) * 8 * 1000) / (timestamp - state.lastInboundTimestamp);
+                updateVideoBitrate(bitrate);
+              }
+              state.lastInboundBytes = bytesReceived;
+              state.lastInboundTimestamp = timestamp;
+              if (report.codecId && stats.has(report.codecId)) {
+                activeCodecMimeType = stats.get(report.codecId).mimeType || "";
+              }
+              appendLog(
+                "stats bytes=" + (report.bytesReceived ?? 0) +
+                " framesDecoded=" + (report.framesDecoded ?? 0) +
+                " keyFramesDecoded=" + (report.keyFramesDecoded ?? 0)
+              );
+            }
+            if (report.type === "track" && mediaKind === "video") {
+              appendLog(
+                "track stats frame=" + (report.frameWidth ?? 0) +
+                "x" + (report.frameHeight ?? 0)
+              );
+            }
+            if (report.type === "codec") {
+              if (!activeCodecMimeType && report.mimeType) {
+                activeCodecMimeType = report.mimeType;
+              }
+            }
+            if (report.type === "candidate-pair" && report.state === "succeeded") {
+              appendLog("candidate pair rtt=" + (report.currentRoundTripTime ?? 0));
+            }
+          });
+          if (activeCodecMimeType) {
+            updateVideoCodec(activeCodecMimeType);
+            if (state.lastReportedCodec !== activeCodecMimeType) {
+              appendLog("codec " + activeCodecMimeType);
+              state.lastReportedCodec = activeCodecMimeType;
+            }
+          }
+        } catch (error) {
+          appendLog("stats error: " + error.message);
+        }
+      }
+
+      function controlStatus(text) {
+        document.getElementById("control-status").textContent = text;
+      }
+
+      function refreshSnapshot() {
+        const image = document.getElementById("snapshot");
+        image.src = "/v1/frame.jpg?ts=" + Date.now();
+      }
+
+      async function sendCameraCommand(action) {
+        controlStatus("sending " + action + "...");
+        try {
+          const response = await fetch("/v1/camera/" + action, { method: "POST" });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail?.message || "request failed");
+          }
+          controlStatus(data.command + " accepted (" + data.request_id + ")");
+        } catch (error) {
+          controlStatus("error: " + error.message);
+        }
+      }
+
+      function buildWebSocketUrl(path) {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        return protocol + "//" + window.location.host + path;
+      }
+
+      async function connectWebRtc(path = signalPath) {
+        disconnectWebRtc();
+        state.lastSignalError = "";
+        state.remoteDescriptionSet = false;
+        state.pendingRemoteIce = [];
+        state.activeSignalPath = path;
+        document.getElementById("signal-path").textContent = path;
+        streamStatus("connecting...");
+        appendLog("connect requested");
+
+        const peer = new RTCPeerConnection({
+          iceServers: [],
+        });
+        state.peer = peer;
+        peer.addTransceiver("video", { direction: "recvonly" });
+
+        peer.ontrack = (event) => {
+          console.log("ontrack", event);
+          const stream = event.streams[0] || new MediaStream([event.track]);
+          remoteVideo.srcObject = stream;
+          appendLog(
+            "track received kind=" + event.track.kind +
+            " streams=" + event.streams.length
+          );
+          remoteVideo.play().then(() => {
+            appendLog("video play() resolved");
+          }).catch((error) => {
+            appendLog("video play() failed: " + error.message);
+          });
+        };
+
+        peer.onconnectionstatechange = () => {
+          updatePeerStatus(peer, "state:");
+          appendLog("peer state=" + peer.connectionState);
+        };
+
+        peer.oniceconnectionstatechange = () => {
+          updatePeerStatus(peer, "state:");
+          appendLog("ice state=" + peer.iceConnectionState);
+          if (
+            (peer.iceConnectionState === "connected" || peer.iceConnectionState === "completed") &&
+            !state.statsTimer
+          ) {
+            appendLog("starting stats polling");
+            state.statsTimer = setInterval(pollPeerStats, 1000);
+          }
+        };
+
+        peer.onicegatheringstatechange = () => {
+          console.log("ice gathering", peer.iceGatheringState);
+          appendLog("ice gathering=" + peer.iceGatheringState);
+        };
+
+        peer.onsignalingstatechange = () => {
+          console.log("signaling state", peer.signalingState);
+          appendLog("signaling state=" + peer.signalingState);
+        };
+
+        peer.onicecandidateerror = (event) => {
+          console.error("ice candidate error", event);
+          appendLog("ice candidate error");
+        };
+
+        peer.onicecandidate = (event) => {
+          if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+            return;
+          }
+          if (!event.candidate) {
+            appendLog("local ice complete");
+            return;
+          }
+          console.log("local ice", event.candidate);
+          appendLog("local ice candidate");
+          state.socket.send(JSON.stringify({
+            type: "ice-candidate",
+            candidate: event.candidate.candidate,
+            sdpMLineIndex: event.candidate.sdpMLineIndex,
+          }));
+        };
+
+        const socket = new WebSocket(buildWebSocketUrl(path));
+        state.socket = socket;
+
+        socket.onopen = () => {
+          streamStatus("signaling connected");
+          appendLog("websocket open");
+        };
+
+        socket.onmessage = async (event) => {
+          const data = JSON.parse(event.data);
+          console.log("signal", data);
+
+          if (data.type === "hello" || data.type === "status") {
+            console.log("status", data.message || data.type);
+            streamStatus(data.message || data.type);
+            appendLog("signal status=" + (data.message || data.type));
+            return;
+          }
+
+          if (data.type === "offer") {
+            streamStatus("offer received");
+            appendLog("offer received");
+            await peer.setRemoteDescription({ type: "offer", sdp: data.sdp });
+            state.remoteDescriptionSet = true;
+            appendLog("remote description set");
+            while (state.pendingRemoteIce.length > 0) {
+              const ice = state.pendingRemoteIce.shift();
+              await peer.addIceCandidate(ice);
+              appendLog("queued remote ice applied");
+            }
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+            updatePeerStatus(peer, "answer created:");
+            appendLog("local answer set");
+            socket.send(JSON.stringify({
+              type: "answer",
+              sdp: answer.sdp,
+            }));
+            appendLog("answer sent");
+            return;
+          }
+
+          if (data.type === "ice-candidate") {
+            console.log("remote ice", data);
+            appendLog("remote ice candidate");
+            const iceCandidate = {
+              candidate: data.candidate,
+              sdpMLineIndex: data.sdpMLineIndex,
+            };
+            if (!state.remoteDescriptionSet) {
+              state.pendingRemoteIce.push(iceCandidate);
+              appendLog("remote ice queued");
+              return;
+            }
+            await peer.addIceCandidate(iceCandidate);
+            appendLog("remote ice applied");
+            return;
+          }
+
+          if (data.type === "error") {
+            state.lastSignalError = data.message || "unknown signaling error";
+            streamStatus("error: " + state.lastSignalError);
+            appendLog("signal error=" + state.lastSignalError);
+          }
+        };
+
+        socket.onclose = (event) => {
+          appendLog("websocket closed code=" + event.code);
+          if (state.lastSignalError) {
+            streamStatus("error: " + state.lastSignalError);
+            return;
+          }
+          streamStatus("signaling closed (code " + event.code + ")");
+        };
+
+        socket.onerror = () => {
+          streamStatus("signaling error");
+          appendLog("websocket error");
+        };
+      }
+
+      function disconnectWebRtc() {
+        state.lastSignalError = "";
+        state.remoteDescriptionSet = false;
+        state.pendingRemoteIce = [];
+        state.lastInboundBytes = null;
+        state.lastInboundTimestamp = null;
+        state.lastReportedCodec = "";
+        if (state.statsTimer) {
+          clearInterval(state.statsTimer);
+          state.statsTimer = null;
+        }
+        appendLog("disconnect requested");
+        if (state.socket) {
+          state.socket.close();
+          state.socket = null;
+        }
+        if (state.peer) {
+          state.peer.close();
+          state.peer = null;
+        }
+        remoteVideo.srcObject = null;
+        updateVideoCodec("unknown");
+        updateVideoBitrate(0);
+        updateVideoFps(0);
+      }
+
+      async function pollStatus() {
+        try {
+          const response = await fetch("/v1/status");
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail?.message || "status failed");
+          }
+          if (!data.webrtc_available) {
+            streamStatus("missing WebRTC runtime");
+            return;
+          }
+          if (!data.ring_connected) {
+            streamStatus("waiting for capture pipeline");
+          }
+        } catch (error) {
+          streamStatus("status error: " + error.message);
+        }
+      }
+
+      pollStatus();
+      setInterval(pollStatus, 2000);
+    </script>
+  </body>
+</html>

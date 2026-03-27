@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+numpy
+opencv-python
+aiortc
+av
+posix_ipc
+pyrealsense2

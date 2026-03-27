@@ -1,0 +1,39 @@
+{
+  "video": {
+    "width": 640,
+    "height": 480,
+    "source": "colored_depth",
+    "fps": 30,
+    "ring_size": 4
+  },
+  "webrtc": {
+    "signaling_path": "/ws/webrtc",
+    "preferred_video_codec": "vp8",
+    "quality_profile": "low",
+    "max_bitrate_bps": null,
+    "min_bitrate_bps": null,
+    "start_bitrate_bps": null,
+    "max_framerate": null,
+    "scale_resolution_down_by": 1.0
+  },
+  "ipc": {
+    "shm_name": "rs_frames",
+    "frame_sem_name": "/rs_frame",
+    "mutex_sem_name": "/rs_mutex",
+    "command_shm_name": "rs_command",
+    "command_mutex_sem_name": "/rs_command_mutex",
+    "command_ready_sem_name": "/rs_command_ready",
+    "command_shm_size": 4096,
+    "message_shm_name": "rs_message",
+    "message_mutex_sem_name": "/rs_message_mutex",
+    "message_ready_sem_name": "/rs_message_ready",
+    "message_shm_size": 4096
+  },
+  "logging": {
+    "log_dir": "logs",
+    "file_name": "capture_pipeline.log",
+    "level": "INFO",
+    "max_bytes": 5242880,
+    "backup_count": 5
+  }
+}
